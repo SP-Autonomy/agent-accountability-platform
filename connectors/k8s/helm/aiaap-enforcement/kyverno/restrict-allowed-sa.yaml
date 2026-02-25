@@ -1,0 +1,42 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: aiaap-restrict-allowed-sa
+  labels:
+    aiaap.pack: identity
+  annotations:
+    policies.kyverno.io/title: Restrict Allowed Service Accounts
+    policies.kyverno.io/description: >-
+      Only allow known service accounts in AI namespaces.
+      Prevents rogue pods from using default or unexpected SAs.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restrict-sa-ai-app
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces:
+                - ai-app
+      validate:
+        message: >-
+          Only allowed service accounts: orchestrator, default.
+          Unexpected SA usage may indicate a confused deputy attack.
+        pattern:
+          spec:
+            serviceAccountName: "orchestrator | default"
+
+    - name: restrict-sa-ai-tools
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces:
+                - ai-tools
+      validate:
+        message: "Only allowed service account in ai-tools: tools-sa, default."
+        pattern:
+          spec:
+            serviceAccountName: "tools-sa | default"

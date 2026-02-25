@@ -1,0 +1,11 @@
+apiVersion: v2
+name: aiaap-otel-collector
+description: "AIAAP OpenTelemetry Collector - receives spans from instrumented workloads, enriches with K8s metadata, and forwards to the AIAAP ingest service."
+type: application
+version: 0.1.0
+appVersion: "0.96.0"
+keywords:
+  - aiaap
+  - opentelemetry
+  - collector
+  - telemetry

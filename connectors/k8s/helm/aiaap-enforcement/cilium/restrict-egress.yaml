@@ -1,0 +1,41 @@
+# Restrict egress from the tools service to an allowlist.
+# Tools should only make outbound calls to known external services.
+# This is a baseline policy - customize the allowlist per deployment.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: aiaap-tools-restrict-egress
+  namespace: ai-tools
+  labels:
+    aiaap.pack: identity
+spec:
+  endpointSelector:
+    matchLabels:
+      app: tools
+  egress:
+    # Allow DNS (required for hostname resolution)
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+
+    # Allow known external CIDR (customize per deployment)
+    # Example: allow only HTTPS outbound
+    - toCIDRSet:
+        - cidr: "0.0.0.0/0"
+          except:
+            - "169.254.169.254/32"
+            - "169.254.0.0/16"
+            - "10.0.0.0/8"        # block internal/cloud
+            - "172.16.0.0/12"
+            - "192.168.0.0/16"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+            - port: "80"
+              protocol: TCP

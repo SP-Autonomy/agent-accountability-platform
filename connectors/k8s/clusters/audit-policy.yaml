@@ -1,0 +1,35 @@
+# K8s Audit Policy for AIAAP
+# Captures security-relevant events with full request/response metadata.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # Log all accesses to secrets at Request level (captures verb + user + response)
+  - level: Request
+    resources:
+      - group: ""
+        resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Log RBAC binding changes
+  - level: Request
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources: ["rolebindings", "clusterrolebindings", "roles", "clusterroles"]
+    verbs: ["create", "update", "patch", "delete"]
+
+  # Log pod exec / attach (potential lateral movement)
+  - level: Request
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+
+  # Log service account token requests
+  - level: Request
+    resources:
+      - group: ""
+        resources: ["serviceaccounts/token"]
+
+  # Metadata only for everything else (reduces noise)
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"

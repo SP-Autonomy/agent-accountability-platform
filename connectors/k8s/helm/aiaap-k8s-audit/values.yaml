@@ -1,0 +1,36 @@
+# AIAAP K8s Audit Collector
+
+namespace: aiaap-system
+tenantId: "default"
+
+ingestUrl: "http://aiaap-ingest.aiaap-system.svc.cluster.local:8100"
+
+# Path to the K8s audit log on the control-plane node (kubeadm default)
+auditLogPath: /var/log/kubernetes/audit/audit.log
+
+# Filter: only forward events for these verbs+resources
+filterVerbs:
+  - get
+  - list
+  - create
+  - update
+  - patch
+  - delete
+
+filterResources:
+  - secrets
+  - rolebindings
+  - clusterrolebindings
+  - "pods/exec"
+  - "pods/attach"
+  - "serviceaccounts/token"
+
+image: python:3.11-slim
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi

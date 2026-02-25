@@ -1,0 +1,42 @@
+# Kind cluster config for AIAAP local development
+# Creates 1 control-plane + 1 worker node
+# Audit logging enabled on the control-plane
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: aiaap
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            audit-log-path: /var/log/kubernetes/audit/audit.log
+            audit-log-maxage: "1"
+            audit-log-maxbackup: "3"
+            audit-log-maxsize: "100"
+            audit-policy-file: /etc/kubernetes/audit-policy.yaml
+          extraVolumes:
+            - name: audit
+              hostPath: /var/log/kubernetes/audit
+              mountPath: /var/log/kubernetes/audit
+              readOnly: false
+              pathType: DirectoryOrCreate
+            - name: audit-policy
+              hostPath: /etc/kubernetes/audit-policy.yaml
+              mountPath: /etc/kubernetes/audit-policy.yaml
+              readOnly: true
+              pathType: FileOrCreate
+    extraMounts:
+      - hostPath: /tmp/aiaap-audit
+        containerPath: /var/log/kubernetes/audit
+      - hostPath: ./clusters/audit-policy.yaml
+        containerPath: /etc/kubernetes/audit-policy.yaml
+
+  - role: worker
+
+networking:
+  # Disable default CNI so we can install Cilium
+  disableDefaultCNI: true
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aiaap-otel-collector.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ include "aiaap-otel-collector.fullname" . }}
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ include "aiaap-otel-collector.fullname" . }}
+  ports:
+    - name: otlp-grpc
+      port: {{ .Values.service.otlpGrpc }}
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: {{ .Values.service.otlpHttp }}
+      targetPort: otlp-http
+      protocol: TCP
+    - name: health
+      port: 13133
+      targetPort: health
+      protocol: TCP

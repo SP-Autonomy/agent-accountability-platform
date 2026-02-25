@@ -1,0 +1,40 @@
+# Block access to cloud Instance Metadata Service (IMDS) from AI workload pods.
+# This prevents SSRF attacks that attempt to steal IAM credentials via the metadata endpoint.
+#
+# Apply to both orchestrator and tools pods - neither should ever reach the metadata service.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: aiaap-block-metadata-ip
+  namespace: ai-app
+  labels:
+    aiaap.pack: identity
+    aiaap.scenario: ssrf_metadata
+spec:
+  endpointSelector:
+    matchLabels: {}   # applies to all pods in ai-app namespace
+  egress:
+    # Allow all egress EXCEPT to the metadata IP ranges
+    - toCIDRSet:
+        - cidr: "0.0.0.0/0"
+          except:
+            - "169.254.169.254/32"   # AWS IMDS / Azure IMDS
+            - "169.254.0.0/16"       # Link-local range (broad block)
+            - "fd00:ec2::254/128"    # AWS IPv6 IMDS
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: aiaap-block-metadata-ip
+  namespace: ai-tools
+  labels:
+    aiaap.pack: identity
+spec:
+  endpointSelector:
+    matchLabels: {}
+  egress:
+    - toCIDRSet:
+        - cidr: "0.0.0.0/0"
+          except:
+            - "169.254.169.254/32"
+            - "169.254.0.0/16"

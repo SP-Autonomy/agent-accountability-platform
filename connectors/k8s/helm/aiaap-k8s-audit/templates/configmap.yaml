@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiaap-k8s-audit-collector-script
+  namespace: {{ .Values.namespace }}
+data:
+  collector.py: |
+    """
+    AIAAP K8s Audit Collector
+    --------------------------
+    Tails the Kubernetes API server audit log file, filters to security-relevant
+    verb+resource combinations, and POSTs them to the AIAAP ingest service.
+
+    Audit log format (one JSON object per line):
+    {
+      "kind": "Event",
+      "apiVersion": "audit.k8s.io/v1",
+      "level": "Request",
+      "auditID": "...",
+      "stage": "ResponseComplete",
+      "requestURI": "/api/v1/namespaces/default/secrets",
+      "verb": "list",
+      "user": { "username": "system:serviceaccount:ai-app:orchestrator" },
+      "objectRef": { "resource": "secrets", "namespace": "default" },
+      "responseStatus": { "code": 200 },
+      "requestReceivedTimestamp": "2024-01-01T00:00:00Z"
+    }
+    """
+    import json
+    import os
+    import sys
+    import time
+    import urllib.request
+    import urllib.error
+
+    AUDIT_LOG_PATH  = os.getenv("AUDIT_LOG_PATH",  "/audit/audit.log")
+    INGEST_URL      = os.getenv("INGEST_URL",       "http://aiaap-ingest:8100")
+    TENANT_ID       = os.getenv("TENANT_ID",        "default")
+    FILTER_VERBS    = set(os.getenv("FILTER_VERBS",    "get,list,create,update,patch,delete").split(","))
+    FILTER_RESOURCES = set(os.getenv("FILTER_RESOURCES", "secrets,rolebindings,clusterrolebindings,pods/exec,pods/attach,serviceaccounts/token").split(","))
+
+    def post_audit_event(payload: dict):
+        body = json.dumps({
+            "source": "audit",
+            "tenant_id": TENANT_ID,
+            "payload": payload,
+        }).encode()
+        req = urllib.request.Request(
+            f"{INGEST_URL}/api/events",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status
+        except urllib.error.URLError as e:
+            print(f"[audit-collector] POST failed: {e}", file=sys.stderr)
+            return None
+
+    def should_forward(event: dict) -> bool:
+        """Return True if this audit event is security-relevant."""
+        # Only process ResponseComplete stage (not RequestReceived, etc.)
+        if event.get("stage") != "ResponseComplete":
+            return False
+
+        verb = event.get("verb", "")
+        if verb not in FILTER_VERBS:
+            return False
+
+        obj_ref  = event.get("objectRef", {})
+        resource = obj_ref.get("resource", "")
+        subres   = obj_ref.get("subresource", "")
+        full_res = f"{resource}/{subres}" if subres else resource
+
+        return full_res in FILTER_RESOURCES or resource in FILTER_RESOURCES
+
+    def tail_log(path: str):
+        print(f"[audit-collector] Watching {path}", flush=True)
+        while not os.path.exists(path):
+            print(f"[audit-collector] Waiting for {path}...", flush=True)
+            time.sleep(5)
+
+        with open(path, "r") as f:
+            f.seek(0, 2)
+            while True:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.1)
+                    continue
+                yield line
+
+    print(f"[audit-collector] Starting. Ingest={INGEST_URL}", flush=True)
+    for line in tail_log(AUDIT_LOG_PATH):
+        try:
+            event = json.loads(line.strip())
+        except json.JSONDecodeError:
+            continue
+
+        if not should_forward(event):
+            continue
+
+        verb    = event.get("verb", "")
+        obj_ref = event.get("objectRef", {})
+        resource = obj_ref.get("resource", "")
+        subres   = obj_ref.get("subresource", "")
+        full_res = f"{resource}/{subres}" if subres else resource
+        user    = event.get("user", {}).get("username", "")
+        ns      = obj_ref.get("namespace", "")
+        code    = event.get("responseStatus", {}).get("code", 0)
+
+        payload = {
+            "verb":           verb,
+            "resource":       full_res,
+            "user":           {"username": user},
+            "objectRef":      obj_ref,
+            "responseStatus": {"code": code},
+            "namespace":      ns,
+            "timestamp":      event.get("requestReceivedTimestamp", ""),
+            "auditID":        event.get("auditID", ""),
+        }
+
+        status = post_audit_event(payload)
+        print(f"[audit-collector] {verb} {full_res} by {user} in {ns} → [{status}]", flush=True)

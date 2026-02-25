@@ -1,0 +1,26 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aiaap-system
+  labels:
+    aiaap.io/managed: "true"
+    aiaap.io/component: "control-plane"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-app
+  labels:
+    aiaap.io/managed: "true"
+    aiaap.io/component: "workload"
+    aiaap.io/pack: "identity"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-tools
+  labels:
+    aiaap.io/managed: "true"
+    aiaap.io/component: "tools"
+    aiaap.io/pack: "identity"

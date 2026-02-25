@@ -1,0 +1,12 @@
+apiVersion: v2
+name: aiaap-ebpf-sensor
+description: "AIAAP eBPF Sensor - Tetragon TracingPolicy + event forwarder DaemonSet. Captures process and network events and forwards them to the AIAAP ingest service."
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - aiaap
+  - ebpf
+  - tetragon
+  - security
+  - network

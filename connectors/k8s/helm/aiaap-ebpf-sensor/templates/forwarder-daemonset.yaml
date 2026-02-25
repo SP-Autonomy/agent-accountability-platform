@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: aiaap-ebpf-forwarder
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: aiaap-ebpf-forwarder
+spec:
+  selector:
+    matchLabels:
+      app: aiaap-ebpf-forwarder
+  template:
+    metadata:
+      labels:
+        app: aiaap-ebpf-forwarder
+    spec:
+      serviceAccountName: aiaap-ebpf-forwarder
+      hostPID: false
+      containers:
+        - name: forwarder
+          image: {{ .Values.forwarder.image }}
+          command: ["python", "/scripts/forwarder.py"]
+          env:
+            - name: INGEST_URL
+              value: "{{ .Values.ingestUrl }}"
+            - name: TENANT_ID
+              value: "{{ .Values.tenantId }}"
+            - name: WATCH_NAMESPACES
+              value: "{{ .Values.watchNamespaces }}"
+            - name: TETRAGON_LOG_PATH
+              value: "{{ .Values.forwarder.tetragonLogPath }}"
+          volumeMounts:
+            - name: forwarder-script
+              mountPath: /scripts
+            - name: tetragon-logs
+              mountPath: /var/run/cilium/tetragon
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: forwarder-script
+          configMap:
+            name: aiaap-ebpf-forwarder-script
+        - name: tetragon-logs
+          hostPath:
+            path: /var/run/cilium/tetragon
+            type: DirectoryOrCreate

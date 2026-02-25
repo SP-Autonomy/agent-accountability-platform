@@ -1,0 +1,23 @@
+# The k8sattributes processor needs to read pod/node/namespace metadata
+# to enrich spans with Kubernetes context.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "aiaap-otel-collector.fullname" . }}
+  labels:
+    app: {{ include "aiaap-otel-collector.fullname" . }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - namespaces
+      - endpoints
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+      - deployments
+      - daemonsets
+      - statefulsets
+    verbs: ["get", "list", "watch"]

@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: |
+  AIAAP CloudTrail Forwarder - Lambda + EventBridge
+  Captures IAM privilege escalation events via CloudTrail and forwards them
+  to the AIAAP SaaS ingest endpoint for correlation and detection.
+
+Parameters:
+  AiAAPIngestUrl:
+    Type: String
+    Description: AIAAP SaaS ingest endpoint (e.g. https://ingest.aiaap.example.com)
+
+  AiAAPApiKey:
+    Type: String
+    NoEcho: true
+    Description: AIAAP API key for the tenant (from make tenant-bootstrap)
+
+  AiAAPTenantId:
+    Type: String
+    Default: default
+    Description: AIAAP tenant identifier for this AWS account
+
+Globals:
+  Function:
+    Runtime: python3.11
+    MemorySize: 256
+    Timeout: 30
+    Environment:
+      Variables:
+        AIAAP_INGEST_URL: !Ref AiAAPIngestUrl
+        AIAAP_API_KEY: !Ref AiAAPApiKey
+        AIAAP_TENANT_ID: !Ref AiAAPTenantId
+
+Resources:
+
+  # ── Lambda Function ─────────────────────────────────────────────────────────
+  CloudTrailForwarderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: aiaap-cloudtrail-forwarder
+      Description: Forwards CloudTrail IAM events to AIAAP SaaS ingest
+      CodeUri: .
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt ForwarderExecutionRole.Arn
+      Events:
+        IamEscalationRule:
+          Type: EventBridgeRule
+          Properties:
+            RuleName: aiaap-iam-escalation-events
+            EventPattern:
+              # CORRECT pattern: CloudTrail events are wrapped by EventBridge
+              # with detail-type "AWS API Call via CloudTrail".
+              # Filter on detail.eventSource and detail.eventName (NOT source: ["aws.iam"])
+              detail-type:
+                - "AWS API Call via CloudTrail"
+              detail:
+                eventSource:
+                  - "iam.amazonaws.com"
+                eventName:
+                  - "CreatePolicyVersion"
+                  - "AttachRolePolicy"
+                  - "PutRolePolicy"
+                  - "UpdateAssumeRolePolicy"
+                  - "CreateRole"
+                  - "PassRole"
+                  - "PutGroupPolicy"
+                  - "AddUserToGroup"
+
+  # ── IAM Role for Lambda ─────────────────────────────────────────────────────
+  ForwarderExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: aiaap-cloudtrail-forwarder-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      # Lambda only needs to write to CloudWatch Logs - ingest is via HTTPS outbound
+      # No CloudTrail read permission needed (EventBridge delivers the event)
+
+  # ── CloudTrail (if not already enabled in the account) ─────────────────────
+  # Uncomment if you need to enable CloudTrail for this account.
+  # AiAAPTrail:
+  #   Type: AWS::CloudTrail::Trail
+  #   Properties:
+  #     TrailName: aiaap-iam-trail
+  #     S3BucketName: !Ref TrailBucket
+  #     IsLogging: true
+  #     IncludeGlobalServiceEvents: true
+  #     IsMultiRegionTrail: false
+  #     EventSelectors:
+  #       - ReadWriteType: WriteOnly
+  #         IncludeManagementEvents: true
+
+Outputs:
+  ForwarderFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt CloudTrailForwarderFunction.Arn
+
+  EventBridgeRuleName:
+    Description: EventBridge rule name
+    Value: aiaap-iam-escalation-events

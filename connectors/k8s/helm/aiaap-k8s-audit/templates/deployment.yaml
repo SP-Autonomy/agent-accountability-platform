@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiaap-k8s-audit-collector
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: aiaap-k8s-audit-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aiaap-k8s-audit-collector
+  template:
+    metadata:
+      labels:
+        app: aiaap-k8s-audit-collector
+    spec:
+      serviceAccountName: aiaap-k8s-audit-collector
+
+      # Must run on the control-plane node where the audit log lives
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule
+
+      containers:
+        - name: collector
+          image: {{ .Values.image }}
+          command: ["python", "/scripts/collector.py"]
+          env:
+            - name: AUDIT_LOG_PATH
+              value: "/audit/audit.log"
+            - name: INGEST_URL
+              value: "{{ .Values.ingestUrl }}"
+            - name: TENANT_ID
+              value: "{{ .Values.tenantId }}"
+            - name: FILTER_VERBS
+              value: {{ join "," .Values.filterVerbs | quote }}
+            - name: FILTER_RESOURCES
+              value: {{ join "," .Values.filterResources | quote }}
+          volumeMounts:
+            - name: collector-script
+              mountPath: /scripts
+            - name: audit-log
+              mountPath: /audit
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+        - name: collector-script
+          configMap:
+            name: aiaap-k8s-audit-collector-script
+        - name: audit-log
+          hostPath:
+            path: /var/log/kubernetes/audit
+            type: DirectoryOrCreate

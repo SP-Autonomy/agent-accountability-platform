@@ -1,0 +1,41 @@
+# AIAAP OTel Collector - default values
+# Override with --set or a values override file.
+
+namespace: aiaap-system
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.96.0"
+  pullPolicy: IfNotPresent
+
+# Tenant identifier injected into every span as aiaap.tenant.id
+tenantId: "default"
+
+# URL of the AIAAP ingest service OTLP HTTP endpoint
+ingestEndpoint: "http://aiaap-ingest.aiaap-system.svc.cluster.local:8100/otlp"
+
+# TLS - set insecure: false and provide certs for mTLS in production
+tls:
+  insecure: true
+
+service:
+  otlpGrpc: 4317
+  otlpHttp: 4318
+
+# Namespaces whose pods the k8sattributes processor will watch
+watchNamespaces:
+  - ai-app
+  - ai-tools
+  - aiaap-system
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Log level for the collector itself (debug shows all spans)
+logLevel: info

@@ -1,0 +1,30 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: aiaap-disable-automount-sa-token
+  labels:
+    aiaap.pack: identity
+  annotations:
+    policies.kyverno.io/title: Disable Automount SA Token
+    policies.kyverno.io/description: >-
+      Service account tokens auto-mounted into pods can be stolen by compromised
+      containers. Require automountServiceAccountToken: false unless explicitly needed.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-automount-serviceaccount-token
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces:
+                - ai-app
+                - ai-tools
+      validate:
+        message: >-
+          automountServiceAccountToken must be explicitly set to false.
+          If this pod needs the SA token, add a comment explaining why.
+        pattern:
+          spec:
+            automountServiceAccountToken: "false"

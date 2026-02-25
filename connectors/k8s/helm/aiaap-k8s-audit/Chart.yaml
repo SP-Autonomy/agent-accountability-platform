@@ -1,0 +1,11 @@
+apiVersion: v2
+name: aiaap-k8s-audit
+description: "AIAAP K8s Audit Collector - tails the Kubernetes API server audit log, filters relevant events, and forwards them to the AIAAP ingest service."
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - aiaap
+  - kubernetes
+  - audit
+  - security

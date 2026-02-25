@@ -1,0 +1,30 @@
+# AIAAP eBPF Sensor - Tetragon-based
+
+namespace: aiaap-system
+tenantId: "default"
+
+# URL of the AIAAP ingest service (must be reachable from DaemonSet pods)
+ingestUrl: "http://aiaap-ingest.aiaap-system.svc.cluster.local:8100"
+
+# Namespaces to watch for eBPF events (comma-separated)
+watchNamespaces: "ai-app,ai-tools"
+
+# Tetragon is expected to be installed separately via its upstream chart.
+# This chart deploys only the TracingPolicy and the AIAAP event forwarder.
+# Install Tetragon first:
+#   helm repo add cilium https://helm.cilium.io
+#   helm install tetragon cilium/tetragon -n kube-system
+
+# The forwarder reads Tetragon's JSON event log and POSTs to ingest
+forwarder:
+  image: python:3.11-slim
+  # The forwarder script is injected via ConfigMap
+  tetragonLogPath: /var/run/cilium/tetragon/tetragon.log
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi

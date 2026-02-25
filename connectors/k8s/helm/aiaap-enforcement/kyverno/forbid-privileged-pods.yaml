@@ -1,0 +1,34 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: aiaap-forbid-privileged-pods
+  labels:
+    aiaap.pack: identity
+  annotations:
+    policies.kyverno.io/title: Forbid Privileged Pods
+    policies.kyverno.io/description: >-
+      Prevent privileged containers, hostNetwork, and hostPID access
+      in AI workload namespaces.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: forbid-privileged
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces:
+                - ai-app
+                - ai-tools
+      validate:
+        message: "Privileged containers are not allowed in AI workload namespaces."
+        pattern:
+          spec:
+            =(hostNetwork): "false"
+            =(hostPID): "false"
+            =(hostIPC): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+                  =(allowPrivilegeEscalation): "false"

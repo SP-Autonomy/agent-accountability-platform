@@ -1,0 +1,29 @@
+# TracingPolicy: capture outbound TCP connections from pods in watched namespaces.
+# Tetragon evaluates this policy and writes matching events to its JSON log.
+#
+# This captures tcp_connect kernel calls, giving us:
+#   - Source pod identity (namespace, pod name, process)
+#   - Destination IP and port
+#   - Whether the connection succeeded or was blocked
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicy
+metadata:
+  name: aiaap-network-monitor
+  namespace: {{ .Values.namespace }}
+spec:
+  kprobes:
+    - call: "tcp_connect"
+      syscall: false
+      return: true
+      args:
+        - index: 0
+          type: "sock"
+      returnArg:
+        index: 0
+        type: "int"
+      # selectors: only watch pods in our monitored namespaces
+      selectors:
+        - matchNamespaces:
+            {{- range (splitList "," .Values.watchNamespaces) }}
+            - {{ trim . | quote }}
+            {{- end }}

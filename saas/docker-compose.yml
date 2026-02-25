@@ -1,0 +1,228 @@
+version: "3.9"
+
+# AIAAP SaaS Control Plane - local MVP
+# Run with: make up  (from repo root - context is ../ relative to this file)
+# Dashboard:  http://localhost:8501
+# Ingest:     http://localhost:8100
+# Detections: http://localhost:8200
+# Identity:   http://localhost:8300
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16
+    container_name: aiaap-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aiaap
+      POSTGRES_PASSWORD: aiaap
+      POSTGRES_DB: aiaap
+    ports:
+      - "5432:5432"
+    volumes:
+      - aiaap-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiaap -d aiaap"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - aiaap-network
+
+  # ── Ingest Service ──────────────────────────────────────────────────────────
+  ingest:
+    build:
+      context: ..
+      dockerfile: saas/services/ingest/Dockerfile
+    container_name: aiaap-ingest
+    restart: unless-stopped
+    ports:
+      - "8100:8100"
+    environment:
+      DATABASE_URL: postgresql://aiaap:aiaap@postgres:5432/aiaap
+      TENANT_ID: default
+      REQUIRE_API_KEY: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - aiaap-network
+
+  # ── Detections Service ──────────────────────────────────────────────────────
+  detections:
+    build:
+      context: ..
+      dockerfile: saas/services/detections/Dockerfile
+    container_name: aiaap-detections
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      DATABASE_URL: postgresql://aiaap:aiaap@postgres:5432/aiaap
+      CORRELATION_INTERVAL_SECONDS: "10"
+      IDENTITY_URL: "http://identity:8300"
+      ENABLE_ISOFOREST: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - aiaap-network
+
+  # ── Identity Service ────────────────────────────────────────────────────────
+  identity:
+    build:
+      context: ..
+      dockerfile: saas/services/identity/Dockerfile
+    container_name: aiaap-identity
+    restart: unless-stopped
+    ports:
+      - "8300:8300"
+    environment:
+      DATABASE_URL: postgresql://aiaap:aiaap@postgres:5432/aiaap
+      REQUIRE_API_KEY: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8300/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - aiaap-network
+
+  # ── Runtime Service (AIRS Runtime Pack) ─────────────────────────────────────
+  runtime:
+    build:
+      context: ..
+      dockerfile: saas/services/runtime/Dockerfile
+    container_name: aiaap-runtime
+    restart: unless-stopped
+    ports:
+      - "8400:8400"
+    environment:
+      DATABASE_URL: postgresql://aiaap:aiaap@postgres:5432/aiaap
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8400/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - aiaap-network
+
+  # ── Dashboard ───────────────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ..
+      dockerfile: saas/services/dashboard/Dockerfile
+    container_name: aiaap-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      INGEST_URL: "http://ingest:8100"
+      DETECTIONS_URL: "http://detections:8200"
+      IDENTITY_URL: "http://identity:8300"
+      RUNTIME_URL: "http://runtime:8400"
+    depends_on:
+      ingest:
+        condition: service_started
+      detections:
+        condition: service_started
+      identity:
+        condition: service_started
+      runtime:
+        condition: service_started
+    networks:
+      - aiaap-network
+
+  # ── Reference Agentic App (optional - for demo / testing) ───────────────────
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: labs/agentic_app/orchestrator/Dockerfile
+    container_name: aiaap-orchestrator
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      AGENT_ID: orchestrator-01
+      AGENT_ROLE: orchestrator
+      TOOLS_BASE_URL: "http://tools:9000"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: aiaap-orchestrator
+      TENANT_ID: default
+      NAMESPACE: aiaap-demo
+      SERVICE_ACCOUNT: orchestrator
+      IDENTITY_URL: "http://aiaap-identity:8300"
+      PDP_ENABLED: "true"
+      PDP_TIMEOUT_SEC: "1.5"
+    depends_on:
+      - ingest
+      - tools
+    profiles:
+      - demo
+    networks:
+      - aiaap-network
+
+  tools:
+    build:
+      context: ..
+      dockerfile: labs/agentic_app/tools/Dockerfile
+    container_name: aiaap-tools
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      AGENT_ID: tools-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_SERVICE_NAME: aiaap-tools
+      TENANT_ID: default
+      NAMESPACE: aiaap-demo
+      SERVICE_ACCOUNT: tools
+    profiles:
+      - demo
+    networks:
+      - aiaap-network
+
+  # ── OTel Collector (for docker-compose demo mode) ──────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: aiaap-otel-collector
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ../saas/configs/otel-collector.yaml:/etc/otel/config.yaml:ro
+    depends_on:
+      - ingest
+    profiles:
+      - demo
+    networks:
+      - aiaap-network
+
+volumes:
+  aiaap-pgdata:
+
+networks:
+  aiaap-network:
+    driver: bridge

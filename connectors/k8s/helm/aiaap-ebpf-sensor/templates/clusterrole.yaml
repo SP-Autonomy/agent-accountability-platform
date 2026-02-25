@@ -1,0 +1,22 @@
+# The forwarder needs read access to pod and namespace info for enrichment
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aiaap-ebpf-forwarder
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aiaap-ebpf-forwarder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aiaap-ebpf-forwarder
+subjects:
+  - kind: ServiceAccount
+    name: aiaap-ebpf-forwarder
+    namespace: {{ .Values.namespace }}

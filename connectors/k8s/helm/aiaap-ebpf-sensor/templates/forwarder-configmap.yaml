@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiaap-ebpf-forwarder-script
+  namespace: {{ .Values.namespace }}
+data:
+  forwarder.py: |
+    """
+    AIAAP eBPF Event Forwarder
+    --------------------------
+    Tails the Tetragon JSON event log, filters to watched namespaces,
+    and POSTs normalized events to the AIAAP ingest service.
+
+    Tetragon event format (simplified):
+    {
+      "process_connect": {
+        "process": { "pod": { "namespace": "ai-app", "name": "orchestrator-abc" } },
+        "destination": { "sock_addr": { "ip": "169.254.169.254", "port": 80 } }
+      },
+      "time": "2024-01-01T00:00:00Z",
+      "node_name": "kind-control-plane"
+    }
+    """
+    import json
+    import os
+    import sys
+    import time
+    import urllib.request
+    import urllib.error
+
+    LOG_PATH        = os.getenv("TETRAGON_LOG_PATH", "/var/run/cilium/tetragon/tetragon.log")
+    INGEST_URL      = os.getenv("INGEST_URL",         "http://aiaap-ingest:8100")
+    TENANT_ID       = os.getenv("TENANT_ID",           "default")
+    WATCH_NAMESPACES = set(os.getenv("WATCH_NAMESPACES", "ai-app,ai-tools").split(","))
+
+    def post_event(payload: dict):
+        body = json.dumps({
+            "source": "ebpf",
+            "tenant_id": TENANT_ID,
+            "payload": payload,
+        }).encode()
+        req = urllib.request.Request(
+            f"{INGEST_URL}/api/events",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status
+        except urllib.error.URLError as e:
+            print(f"[forwarder] POST failed: {e}", file=sys.stderr)
+            return None
+
+    def parse_tetragon_event(line: str) -> dict | None:
+        """Extract key fields from a Tetragon JSON log line."""
+        try:
+            ev = json.loads(line.strip())
+        except json.JSONDecodeError:
+            return None
+
+        # process_connect events have destination socket info
+        if "process_connect" in ev:
+            pc = ev["process_connect"]
+            process = pc.get("process", {})
+            pod     = process.get("pod", {})
+            ns      = pod.get("namespace", "")
+
+            if ns not in WATCH_NAMESPACES:
+                return None
+
+            dest    = pc.get("destination", {})
+            sock    = dest.get("sock_addr", {})
+
+            return {
+                "type":           "process_connect",
+                "namespace":      ns,
+                "pod_name":       pod.get("name", ""),
+                "process_binary": process.get("binary", ""),
+                "destination_ip": sock.get("ip", ""),
+                "destination_port": sock.get("port", 0),
+                "action":         "observed",   # Tetragon with Cilium can set "blocked"
+                "timestamp":      ev.get("time", ""),
+                "node_name":      ev.get("node_name", ""),
+            }
+
+        # process_kprobe with tcp_connect return value
+        if "process_kprobe" in ev:
+            pk = ev["process_kprobe"]
+            process = pk.get("process", {})
+            pod     = process.get("pod", {})
+            ns      = pod.get("namespace", "")
+
+            if ns not in WATCH_NAMESPACES:
+                return None
+
+            # Return value of tcp_connect: 0 = success, non-zero = blocked
+            return_val = pk.get("return", {}).get("int_arg", 0)
+            action = "blocked" if return_val != 0 else "observed"
+
+            # Extract dest from args if available
+            args = pk.get("args", [])
+            dest_ip = ""
+            dest_port = 0
+            for arg in args:
+                sa = arg.get("sock_arg", {})
+                if sa:
+                    dest_ip   = sa.get("daddr", "")
+                    dest_port = sa.get("dport", 0)
+
+            return {
+                "type":           "process_kprobe_tcp_connect",
+                "namespace":      ns,
+                "pod_name":       pod.get("name", ""),
+                "process_binary": process.get("binary", ""),
+                "destination_ip": dest_ip,
+                "destination_port": dest_port,
+                "action":         action,
+                "timestamp":      ev.get("time", ""),
+                "node_name":      ev.get("node_name", ""),
+            }
+
+        return None
+
+    def tail_log(path: str):
+        """Tail the Tetragon log file from the end, yielding new lines."""
+        print(f"[forwarder] Watching {path}", flush=True)
+        while not os.path.exists(path):
+            print(f"[forwarder] Waiting for {path}...", flush=True)
+            time.sleep(5)
+
+        with open(path, "r") as f:
+            f.seek(0, 2)  # seek to end
+            while True:
+                line = f.readline()
+                if not line:
+                    time.sleep(0.1)
+                    continue
+                yield line
+
+    print(f"[forwarder] Starting. Ingest={INGEST_URL}, Namespaces={WATCH_NAMESPACES}", flush=True)
+    for line in tail_log(LOG_PATH):
+        payload = parse_tetragon_event(line)
+        if payload:
+            status = post_event(payload)
+            print(f"[forwarder] Sent {payload['type']} from {payload['namespace']}/{payload['pod_name']} -> {payload['destination_ip']}:{payload['destination_port']} [{status}]", flush=True)
+
+  config.json: |
+    {
+      "ingest_url": "{{ .Values.ingestUrl }}",
+      "tenant_id": "{{ .Values.tenantId }}",
+      "watch_namespaces": "{{ .Values.watchNamespaces }}",
+      "tetragon_log_path": "{{ .Values.forwarder.tetragonLogPath }}"
+    }

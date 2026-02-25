@@ -1,0 +1,26 @@
+# Only allow the orchestrator pod to reach the tools service.
+# Any other source trying to directly access the tools service is a shadow route attack.
+#
+# The orchestrator is identified by pod label: app=orchestrator in ai-app namespace.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: aiaap-prevent-shadow-routes
+  namespace: ai-tools
+  labels:
+    aiaap.pack: identity
+    aiaap.scenario: shadow_tool_route
+spec:
+  endpointSelector:
+    matchLabels:
+      app: tools
+  ingress:
+    # Only allow ingress from the orchestrator pod in ai-app
+    - fromEndpoints:
+        - matchLabels:
+            app: orchestrator
+            io.kubernetes.pod.namespace: ai-app
+    # Also allow from aiaap-system for health checks
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: aiaap-system
